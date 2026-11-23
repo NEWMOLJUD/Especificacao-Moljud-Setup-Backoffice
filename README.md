@@ -103,6 +103,29 @@ No macOS, troque `sha256sum` por `shasum -a 256`.
 > no final. O hash fica diferente e a senha correta passa a ser recusada com
 > `401 INVALID_CREDENTIALS`. Use sempre `printf '%s'`.
 
+#### Pelo navegador (web-app)
+
+Quem não quiser usar o terminal pode usar estes dois sites, que fazem o cálculo no próprio
+navegador:
+
+1. Gere a senha no [gerador de senhas do Bitwarden](https://bitwarden.com/password-generator/):
+   escolha **Password**, ajuste **Characters** para **no mínimo 32** (o padrão é 14) e deixe
+   marcados A-Z, a-z e 0-9. Guarde a senha no cofre de senhas.
+2. Calcule o hash no [SHA256 Online Tools](https://emn178.github.io/online-tools/sha256.html):
+   cole a senha em **Input**, mantenha **Input Encoding** em UTF-8, **Output Encoding** em Hex
+   e **Enable HMAC** desmarcado. Copie o resultado de **Output** para
+   `SETUP_ROOT_PASSWORD_SHA256`.
+
+Cuidados:
+
+- Esses sites são de terceiros. Quem controla a página pode, em tese, registrar a senha. Para
+  o root de produção, o comando acima continua sendo a opção recomendada.
+- No SHA256 Online Tools, deixe **Remember Input** desmarcado (senão a senha fica salva no
+  navegador) e não use o **Share Link**, que coloca a senha na URL.
+- Confira que não ficou espaço nem quebra de linha depois da senha colada em **Input**: isso
+  muda o hash, com o mesmo efeito do `echo` descrito acima.
+- Feche as duas abas depois de terminar.
+
 ### 3.2 Como o app usa a variável
 
 - Se a variável estiver ausente, vazia ou não for exatamente 64 caracteres hexadecimais, o
