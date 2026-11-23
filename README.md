@@ -1,4 +1,4 @@
-# Standard de Setup de Backoffice — Moljud
+# Especificacao Moljud Setup Backoffice
 
 **Versão:** 1.0.0
 
@@ -30,7 +30,7 @@ proibição, recomendação forte e opção.
 
 ## 1. Visão geral e escopo
 
-Cada app da Moljud implementa este standard por conta própria, com seu próprio banco de
+Cada app da Moljud implementa esta especificação por conta própria, com seu próprio banco de
 dados. Não existe serviço central de autenticação.
 
 O modelo tem dois níveis:
@@ -42,7 +42,7 @@ O modelo tem dois níveis:
 
 Um admin nunca cria, remove ou promove outro admin. Isso só acontece em `/setup`.
 
-### O que o standard cobre
+### O que a especificação cobre
 
 - A página `/setup` e a API que ela usa.
 - O MFA do root.
@@ -55,7 +55,7 @@ Um admin nunca cria, remove ou promove outro admin. Isso só acontece em `/setup
 - A tela de login, o logout e o mecanismo de sessão (JWT em cookie, definido por cada app).
 - Sub-usuários, papéis e permissões.
 - MFA de admins e de sub-usuários.
-- Envio de email. O standard não envia nada: os links são entregues pelo root por fora.
+- Envio de email. A especificação não envia nada: os links são entregues pelo root por fora.
 
 ## 2. Glossário
 
@@ -74,9 +74,9 @@ Um admin nunca cria, remove ou promove outro admin. Isso só acontece em `/setup
 | --- | --- | --- |
 | `SETUP_ROOT_PASSWORD` | Não | Mínimo de 32 caracteres. |
 
-- A senha **DEVE** ser gerada aleatoriamente (por exemplo, `openssl rand -base64 32`). O
-  standard não limita tentativas de senha; a proteção contra força bruta vem só do tamanho e
-  da aleatoriedade. Uma senha de 32 caracteres escolhida por uma pessoa não atende ao standard.
+- A senha **DEVE** ser gerada aleatoriamente (por exemplo, `openssl rand -base64 32`). A
+  especificação não limita tentativas de senha; a proteção contra força bruta vem só do tamanho e
+  da aleatoriedade. Uma senha de 32 caracteres escolhida por uma pessoa não atende à especificação.
 - Se a variável estiver ausente, vazia ou com menos de 32 caracteres, o setup fica
   **desabilitado**: o app sobe normalmente, a página `/setup` mostra a tela de indisponível e
   toda rota `/api/setup/*` responde `503 SETUP_DISABLED`.
@@ -167,7 +167,7 @@ Regras:
 - `username` e `email` são únicos entre todos os admins, inclusive os `disabled`, sem
   diferenciar maiúsculas de minúsculas.
 - `username`: de 3 a 32 caracteres, apenas `a-z`, `0-9`, `.`, `_` e `-`.
-- `email`: formato de email válido. O standard **não** verifica se o endereço existe ou
+- `email`: formato de email válido. A especificação **não** verifica se o endereço existe ou
   pertence ao admin.
 - **Desativar** revoga o link pendente e invalida todas as sessões do admin na hora. A senha
   guardada é mantida.
@@ -193,7 +193,7 @@ Regras:
 
 ## 6. Páginas
 
-Todas as páginas deste standard **DEVEM** ser servidas com `Cache-Control: no-store`,
+Todas as páginas desta especificação **DEVEM** ser servidas com `Cache-Control: no-store`,
 `Referrer-Policy: no-referrer` e `X-Robots-Tag: noindex`.
 
 ### 6.1 `GET /setup`
@@ -620,7 +620,7 @@ Mesmo com login e sessão fora do escopo, o app **DEVE** garantir:
 
 ## 11. Requisitos de segurança
 
-- Todas as páginas e rotas deste standard **DEVEM** ser servidas apenas por HTTPS.
+- Todas as páginas e rotas desta especificação **DEVEM** ser servidas apenas por HTTPS.
 - A senha root e os códigos MFA **DEVEM** ser comparados em tempo constante.
 - Senha root, códigos MFA, segredo MFA, tokens e senhas de admin **NÃO DEVEM** aparecer em
   logs, URLs de `/api/setup/*`, mensagens de erro ou ferramentas de monitoramento.
