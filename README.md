@@ -1,6 +1,6 @@
 # Standard de Setup de Backoffice — Moljud
 
-**Versão:** 1.0.0
+**Versão:** 2.0.0
 
 Especificação das páginas, rotas e regras que todo app da Moljud deve seguir para o acesso
 de **setup** e para a gestão dos seus **admins**. Este repositório contém somente a
@@ -35,8 +35,8 @@ dados. Não existe serviço central de autenticação.
 
 O modelo tem dois níveis:
 
-- O **root** entra em `/setup` com uma senha definida em variável de ambiente mais um código
-  MFA. O root não é um usuário do sistema: ele só existe para gerenciar admins.
+- O **root** entra em `/setup` com uma senha root mais um código MFA. O ambiente guarda
+  apenas o hash SHA-256 dessa senha, nunca a senha em si. O root não é um usuário do sistema: ele só existe para gerenciar admins.
 - O **admin** é um usuário de permissão alta dentro do app, criado pelo root. É o admin quem
   cria sub-usuários e administra o dia a dia do app.
 
@@ -61,7 +61,8 @@ Um admin nunca cria, remove ou promove outro admin. Isso só acontece em `/setup
 
 | Termo | Significado |
 | --- | --- |
-| **Root** | Quem possui a senha de ambiente e o MFA do setup. Não tem registro de usuário. |
+| **Root** | Quem possui a senha root e o MFA do setup. Não tem registro de usuário. |
+| **Senha root** | Senha aleatória que o root digita em `/setup`. Só o root a conhece; o ambiente guarda apenas o hash. |
 | **Setup** | A página `/setup` e a API `/api/setup/*`, de uso exclusivo do root. |
 | **Admin** | Usuário de permissão alta do app, criado pelo root. |
 | **Link de convite** | Link de uso único onde um admin recém-criado define sua primeira senha. |
@@ -72,23 +73,76 @@ Um admin nunca cria, remove ou promove outro admin. Isso só acontece em `/setup
 
 | Variável | Obrigatória | Regra |
 | --- | --- | --- |
-| `SETUP_ROOT_PASSWORD` | Não | Mínimo de 32 caracteres. |
+| `SETUP_ROOT_PASSWORD_SHA256` | Não | Hash SHA-256 da senha root: exatamente 64 caracteres hexadecimais. |
 
-- A senha **DEVE** ser gerada aleatoriamente (por exemplo, `openssl rand -base64 32`). O
-  standard não limita tentativas de senha; a proteção contra força bruta vem só do tamanho e
-  da aleatoriedade. Uma senha de 32 caracteres escolhida por uma pessoa não atende ao standard.
-- Se a variável estiver ausente, vazia ou com menos de 32 caracteres, o setup fica
-  **desabilitado**: o app sobe normalmente, a página `/setup` mostra a tela de indisponível e
-  toda rota `/api/setup/*` responde `503 SETUP_DISABLED`.
+O ambiente **NÃO DEVE** conter a senha root, só o hash dela. Assim, quem consegue ler as
+variáveis de ambiente (painel da cloud, pipeline de deploy, dump de configuração, backup)
+não descobre a senha e não consegue entrar no setup.
+
+### 3.1 Gerar a senha e o hash
+
+- A senha root **DEVE** ter no mínimo 32 caracteres, gerados aleatoriamente. O standard não
+  limita tentativas de senha; a proteção contra força bruta vem só do tamanho e da
+  aleatoriedade. Uma senha de 32 caracteres escolhida por uma pessoa não atende ao standard.
+- A senha **DEVERIA** ser gerada na máquina do root, fora da cloud, e guardada em um cofre de
+  senhas. Só o hash vai para o ambiente.
+- O hash é o SHA-256 dos bytes UTF-8 da senha, exatamente como será digitada, **sem quebra de
+  linha no final**, escrito em hexadecimal.
+
+Exemplo de geração:
+
+```bash
+SENHA="$(openssl rand -base64 32)"
+echo "Senha root (guarde no cofre de senhas): $SENHA"
+printf '%s' "$SENHA" | sha256sum | cut -d' ' -f1
+```
+
+No macOS, troque `sha256sum` por `shasum -a 256`.
+
+> **Atenção:** `echo "$SENHA" | sha256sum` calcula o hash da senha **com** uma quebra de linha
+> no final. O hash fica diferente e a senha correta passa a ser recusada com
+> `401 INVALID_CREDENTIALS`. Use sempre `printf '%s'`.
+
+### 3.2 Como o app usa a variável
+
+- Se a variável estiver ausente, vazia ou não for exatamente 64 caracteres hexadecimais, o
+  setup fica **desabilitado**: o app sobe normalmente, a página `/setup` mostra a tela de
+  indisponível e toda rota `/api/setup/*` responde `503 SETUP_DISABLED`. Isso também pega o
+  erro de colocar a senha em texto na variável, no lugar do hash.
+- O app **DEVE** aceitar o hexadecimal em maiúsculas ou minúsculas e tratá-lo em minúsculas.
+- Para verificar a senha recebida em `X-Setup-Password`, o app calcula o SHA-256 dela e
+  compara, em tempo constante, com o hash da variável.
+- O app **DEVE** recusar com `401 INVALID_CREDENTIALS` qualquer senha recebida com menos de 32
+  caracteres, mesmo que o hash confira. Como o app não enxerga mais a senha na variável, este
+  é o único ponto em que o tamanho mínimo é imposto por ele.
 - Remover a variável é a forma oficial de desligar o setup em um ambiente.
 - Desabilitar o setup não afeta admins existentes nem links já gerados: as rotas
   `/api/admin-links/*` continuam funcionando.
+
+**Por que SHA-256 simples e não Argon2id ou bcrypt.** Hashes lentos existem para proteger
+senhas fracas, escolhidas por pessoas. A senha root é aleatória e tem no mínimo 32
+caracteres, então inverter o SHA-256 dela é inviável. Um hash lento, aqui, só deixaria cada
+requisição de setup mais cara, e o standard não limita tentativas de senha: qualquer pessoa
+na internet poderia usar isso para sobrecarregar o app.
+
+### 3.3 Migração da versão 1.x
+
+Na versão 1.x a variável se chamava `SETUP_ROOT_PASSWORD` e continha a senha em texto. Para
+migrar:
+
+1. Calcule o hash da senha atual com o comando da seção 3.1 e defina
+   `SETUP_ROOT_PASSWORD_SHA256`.
+2. Remova `SETUP_ROOT_PASSWORD` do ambiente.
+3. Se o hash guardado pelo app na versão 1.x (seção 4) não for o SHA-256 em hexadecimal da
+   senha, o app vai enxergar a migração como troca de senha root e descartar o MFA
+   (seção 4.1). Nesse caso, o root **DEVERIA** estar pronto para configurar o MFA de novo
+   logo após o deploy.
 
 ## 4. Estado do setup
 
 O app **DEVE** persistir, fora da memória do processo:
 
-- uma impressão digital (hash) da senha root em uso;
+- o hash da senha root em uso (o valor da variável, em minúsculas);
 - o segredo MFA e se ele já foi confirmado;
 - o contador de códigos MFA errados consecutivos;
 - se o setup está travado;
@@ -96,7 +150,7 @@ O app **DEVE** persistir, fora da memória do processo:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Desabilitado: variavel ausente ou curta
+    [*] --> Desabilitado: variavel ausente ou invalida
     [*] --> MfaPendente: variavel valida
     MfaPendente --> MfaConfirmado: root valida o primeiro codigo
     MfaConfirmado --> Travado: 10 codigos errados seguidos
@@ -106,17 +160,17 @@ stateDiagram-v2
 
 ### 4.1 Troca da senha root
 
-Quando a senha da variável não corresponde à impressão digital guardada, o app **DEVE**, antes
-de atender qualquer requisição de setup:
+Quando o hash da variável não corresponde ao hash guardado, o app **DEVE**, antes de atender
+qualquer requisição de setup:
 
 1. descartar o segredo MFA e marcar o MFA como não confirmado;
 2. zerar o contador de erros e remover a trava;
-3. guardar a nova impressão digital;
+3. guardar o novo hash;
 4. registrar o evento `root_password_changed` na auditoria.
 
 Admins, links pendentes e o log de auditoria **NÃO DEVEM** ser alterados pela troca.
 
-Trocar a senha root é o único jeito de refazer o MFA e o único jeito de destravar o setup.
+Trocar a senha root (e, portanto, o hash na variável) é o único jeito de refazer o MFA e o único jeito de destravar o setup.
 
 ### 4.2 MFA do root
 
@@ -207,7 +261,7 @@ códigos MFA em cookie, `localStorage`, `sessionStorage` ou qualquer outro armaz
 | **Indisponível** | API responde `SETUP_DISABLED`. | Aviso de que o setup está desligado neste ambiente. |
 | **Senha** | Estado inicial. | Campo de senha root. Ao enviar, chama `GET /api/setup/status`. |
 | **Configurar MFA** | `mfa_configured` é `false`. | QR code, segredo em texto com botão de copiar, aviso para guardar o segredo, campo do código de 6 dígitos. |
-| **Travado** | API responde `SETUP_LOCKED`. | Aviso de que é preciso trocar `SETUP_ROOT_PASSWORD` no ambiente. |
+| **Travado** | API responde `SETUP_LOCKED`. | Aviso de que é preciso gerar uma nova senha root e trocar `SETUP_ROOT_PASSWORD_SHA256` no ambiente. |
 | **Código MFA** | `mfa_configured` é `true`. | Campo do código. Ao enviar, carrega o painel. |
 | **Painel** | Senha e código aceitos. | Lista de admins, ações e log de auditoria. |
 
@@ -287,7 +341,7 @@ O app **DEVE** verificar nesta ordem e responder com o primeiro erro encontrado:
 | # | Condição | Resposta |
 | --- | --- | --- |
 | 1 | Setup desabilitado. | `503 SETUP_DISABLED` |
-| 2 | Senha ausente ou incorreta. | `401 INVALID_CREDENTIALS` |
+| 2 | Senha ausente, com menos de 32 caracteres ou cujo SHA-256 não confere com a variável. | `401 INVALID_CREDENTIALS` |
 | 3 | Setup travado. | `423 SETUP_LOCKED` |
 | 4 | Rota S+M (exceto `mfa/confirm`) e MFA ainda não confirmado. | `409 MFA_NOT_CONFIGURED` |
 | 5 | Rota S+M e header do código ausente. | `401 MFA_REQUIRED` |
@@ -560,7 +614,7 @@ Toda resposta de erro tem este formato:
 
 | Código | HTTP | Quando |
 | --- | --- | --- |
-| `SETUP_DISABLED` | 503 | `SETUP_ROOT_PASSWORD` ausente ou menor que 32 caracteres. |
+| `SETUP_DISABLED` | 503 | `SETUP_ROOT_PASSWORD_SHA256` ausente ou fora do formato de 64 caracteres hexadecimais. |
 | `INVALID_CREDENTIALS` | 401 | Senha root ausente ou incorreta. |
 | `SETUP_LOCKED` | 423 | 10 códigos MFA errados seguidos; exige troca da senha root. |
 | `MFA_NOT_CONFIGURED` | 409 | A rota exige MFA confirmado e ele ainda não foi. |
@@ -621,12 +675,13 @@ Mesmo com login e sessão fora do escopo, o app **DEVE** garantir:
 ## 11. Requisitos de segurança
 
 - Todas as páginas e rotas deste standard **DEVEM** ser servidas apenas por HTTPS.
-- A senha root e os códigos MFA **DEVEM** ser comparados em tempo constante.
+- O hash da senha root e os códigos MFA **DEVEM** ser comparados em tempo constante.
+- A senha root em texto **NÃO DEVE** ser guardada em variável de ambiente, banco, arquivo de
+  configuração ou cofre de segredos da cloud. O app só conhece o hash.
 - Senha root, códigos MFA, segredo MFA, tokens e senhas de admin **NÃO DEVEM** aparecer em
   logs, URLs de `/api/setup/*`, mensagens de erro ou ferramentas de monitoramento.
 - Os headers `X-Setup-Password` e `X-Setup-MFA-Code` **DEVEM** ser removidos de qualquer log
   de requisição, inclusive em proxies e balanceadores sob controle da Moljud.
-- A impressão digital da senha root **DEVE** ser um hash, nunca a senha em texto.
 - O segredo MFA **DEVERIA** ser guardado cifrado no banco.
 - Senhas de admin **DEVEM** ser guardadas com Argon2id, scrypt ou bcrypt.
 - Tokens de link são guardados apenas como hash (SHA-256 é suficiente, dado o tamanho).
@@ -638,7 +693,8 @@ Mesmo com login e sessão fora do escopo, o app **DEVE** garantir:
 
 ### 12.1 Primeiro setup
 
-1. A equipe define `SETUP_ROOT_PASSWORD` com 32 caracteres aleatórios e sobe o app.
+1. O root gera a senha e o hash (seção 3.1), guarda a senha no cofre, a equipe define
+   `SETUP_ROOT_PASSWORD_SHA256` com o hash e sobe o app.
 2. O root abre `/setup` e informa a senha → `GET /api/setup/status` devolve
    `mfa_configured: false`.
 3. A página chama `POST /api/setup/mfa/enroll` e mostra o QR code e o segredo.
@@ -667,14 +723,16 @@ Mesmo com login e sessão fora do escopo, o app **DEVE** garantir:
 
 - **Tem o segredo guardado:** cadastra o mesmo segredo em outro autenticador. Nada muda no
   app.
-- **Não tem o segredo:** troca `SETUP_ROOT_PASSWORD` no ambiente e reinicia o app. O MFA é
-  descartado e o fluxo 12.1 recomeça do passo 2. Admins não são afetados.
+- **Não tem o segredo:** gera uma nova senha root, troca `SETUP_ROOT_PASSWORD_SHA256` no
+  ambiente e reinicia o app. O MFA é descartado e o fluxo 12.1 recomeça do passo 2. Admins
+  não são afetados.
 
 ### 12.5 Setup travado
 
 1. Após 10 códigos errados seguidos, toda rota de setup responde `423 SETUP_LOCKED`.
 2. Como a trava só é alcançada por quem tem a senha correta, ela indica senha vazada ou
-   autenticador errado. Nos dois casos a saída é a mesma: trocar `SETUP_ROOT_PASSWORD`.
+   autenticador errado. Nos dois casos a saída é a mesma: gerar uma nova senha root e trocar
+   `SETUP_ROOT_PASSWORD_SHA256`.
 3. Após a troca, o setup volta ao estado de MFA pendente (fluxo 12.1).
 
 ## 13. Riscos conhecidos
@@ -683,8 +741,17 @@ Estas são consequências aceitas do desenho. Quem implementa e quem opera preci
 
 - **A senha root é a única barreira contra força bruta.** Não há limite de tentativas de
   senha. Se ela não for realmente aleatória, o setup fica exposto.
-- **Quem altera variáveis de ambiente controla o setup.** Trocar a senha reseta o MFA; logo,
-  o acesso ao ambiente de deploy equivale a acesso root.
+- **Quem altera variáveis de ambiente controla o setup.** Guardar só o hash impede que quem
+  **lê** o ambiente descubra a senha, mas quem **escreve** nele pode trocar o hash pelo de uma
+  senha própria, o que também reseta o MFA. O acesso de escrita ao ambiente de deploy continua
+  equivalendo a acesso root.
+- **O hash não protege a senha em trânsito.** A senha root chega ao app em texto, dentro do
+  HTTPS. Quem termina o TLS (balanceador, proxy, CDN) ou lê a memória do processo consegue
+  vê-la. O hash protege contra vazamento de configuração, não contra a infraestrutura que
+  atende as requisições.
+- **O tamanho e a aleatoriedade da senha dependem de quem a gera.** O app só enxerga o hash
+  na variável; ele recusa senhas recebidas com menos de 32 caracteres, mas não tem como saber
+  se a senha foi realmente sorteada.
 - **Janela antes do MFA.** Entre subir o app e confirmar o MFA, a senha sozinha basta para
   configurar o autenticador. O MFA **DEVERIA** ser configurado logo após o deploy e logo após
   qualquer troca de senha.
@@ -701,7 +768,9 @@ Estas são consequências aceitas do desenho. Quem implementa e quem opera preci
 
 **Configuração e estado**
 
-- [ ] Setup desabilitado (`503 SETUP_DISABLED`) com a variável ausente ou menor que 32 caracteres.
+- [ ] Setup desabilitado (`503 SETUP_DISABLED`) com a variável ausente ou fora do formato de 64 caracteres hexadecimais.
+- [ ] O ambiente guarda só o hash SHA-256 da senha root, nunca a senha.
+- [ ] Senha recebida com menos de 32 caracteres é recusada com `401 INVALID_CREDENTIALS`.
 - [ ] Trocar a senha root descarta o MFA, zera o contador e remove a trava.
 - [ ] Trocar a senha root não altera admins, links nem auditoria.
 - [ ] O estado do setup sobrevive a reinícios do app.
