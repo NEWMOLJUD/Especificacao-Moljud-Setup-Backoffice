@@ -1,6 +1,6 @@
 # Standard de Setup de Backoffice — Moljud
 
-**Versão:** 1.0.0
+**Versão:** 1.1.0
 
 Especificação das páginas, rotas e regras que todo app da Moljud deve seguir para o acesso
 de **setup** e para a gestão dos seus **admins**. Este repositório contém somente a
@@ -852,9 +852,16 @@ Mesmo com login e sessão fora do escopo, o app **DEVE** garantir:
   removidos de qualquer log de requisição, inclusive em proxies e balanceadores sob controle
   da Moljud. O corpo das chamadas a `/api/admin-links/*` também **NÃO DEVE** ser registrado.
 - O segredo MFA **DEVERIA** ser guardado cifrado no banco.
-- Senhas de admin **DEVEM** ser guardadas com Argon2id ou scrypt. O bcrypt ignora o que passa
-  de 72 bytes; ele só **PODE** ser usado se o app recusar, com `422 VALIDATION_ERROR`, senhas
-  com mais de 72 bytes em UTF-8.
+- Senhas de admin **DEVEM** ser guardadas com Argon2id, scrypt ou PBKDF2-HMAC-SHA256. O app
+  **DEVERIA** usar Argon2id ou scrypt sempre que a plataforma os ofereça de forma nativa.
+- O PBKDF2-HMAC-SHA256 existe para plataformas sem Argon2id nem scrypt nativos e com limite
+  curto de processamento por requisição, como o plano gratuito do Cloudflare Workers. Quando
+  usado, o app **DEVE** gerar um sal aleatório de no mínimo 16 bytes para cada senha, usar no
+  mínimo 100.000 iterações e guardar o número de iterações junto do hash, para poder
+  aumentá-lo depois sem invalidar as senhas existentes. O app que usa PBKDF2 **DEVE** cumprir
+  o limite de tentativas de login da seção 10.
+- O bcrypt ignora o que passa de 72 bytes; ele só **PODE** ser usado se o app recusar, com
+  `422 VALIDATION_ERROR`, senhas com mais de 72 bytes em UTF-8.
 - Tokens de link são guardados apenas como hash (SHA-256 é suficiente, dado o tamanho).
 - As rotas `/api/setup/*` **NÃO DEVEM** aceitar requisições de outras origens (sem CORS
   liberado).
@@ -964,6 +971,12 @@ Estas são consequências aceitas do desenho. Quem implementa e quem opera preci
 - **O admin é o elo mais fraco.** O root usa senha aleatória de 32 caracteres e TOTP; o admin,
   uma senha escolhida por ele. Sem limite de tentativas no login e sem segundo fator (seção
   10), o cuidado com o setup protege pouco.
+- **PBKDF2 resiste menos que Argon2id e scrypt.** Ele não exige memória, então quem obtiver
+  uma cópia do banco testa senhas em GPU muito mais rápido. Em apps que usam PBKDF2 (seção
+  11), a proteção das senhas de admin depende mais do tamanho mínimo de 12 caracteres, da
+  recusa de senhas comuns e do limite de tentativas no login. Mesmo com 100.000 iterações, o
+  cálculo pode passar do limite de processamento de planos gratuitos; cada app **DEVERIA**
+  medir o login no ambiente real antes de entrar em produção.
 - **Um código por ação.** O root espera até 30 segundos entre ações, inclusive entre páginas
   do log de auditoria. É o preço de impedir a reutilização de códigos.
 - **Senha root em memória na página.** Se a página mantém a senha em memória (seção 6.1), um
@@ -1036,7 +1049,7 @@ Estas são consequências aceitas do desenho. Quem implementa e quem opera preci
 - [ ] Gerar recovery invalida senha e sessões do admin imediatamente.
 - [ ] A página do link mostra nome e email somente leitura e só pede a senha.
 - [ ] Depois de definir a senha, o admin vai para o login, sem sessão criada.
-- [ ] Senhas de admin guardadas com Argon2id ou scrypt; com bcrypt, senhas acima de 72 bytes são recusadas.
+- [ ] Senhas de admin guardadas com Argon2id, scrypt ou PBKDF2-HMAC-SHA256 (sal de 16 bytes ou mais, 100.000 iterações ou mais, iterações guardadas com o hash); com bcrypt, senhas acima de 72 bytes são recusadas.
 
 **App e segurança**
 
