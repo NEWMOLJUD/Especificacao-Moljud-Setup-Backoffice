@@ -1,6 +1,6 @@
 # Standard de Setup de Backoffice — Moljud
 
-**Versão:** 2.0.0
+**Versão:** 1.0.0
 
 Especificação das páginas, rotas e regras que todo app da Moljud deve seguir para o acesso
 de **setup** e para a gestão dos seus **admins**. Este repositório contém somente a
@@ -147,19 +147,6 @@ senhas fracas, escolhidas por pessoas. A senha root é aleatória e tem no míni
 caracteres, então inverter o SHA-256 dela é inviável. Um hash lento, aqui, só deixaria cada
 requisição de setup mais cara, e o standard não limita tentativas de senha: qualquer pessoa
 na internet poderia usar isso para sobrecarregar o app.
-
-### 3.3 Migração da versão 1.x
-
-Na versão 1.x a variável se chamava `SETUP_ROOT_PASSWORD` e continha a senha em texto. Para
-migrar:
-
-1. Calcule o hash da senha atual com o comando da seção 3.1 e defina
-   `SETUP_ROOT_PASSWORD_SHA256`.
-2. Remova `SETUP_ROOT_PASSWORD` do ambiente.
-3. Se o hash guardado pelo app na versão 1.x (seção 4) não for o SHA-256 em hexadecimal da
-   senha, o app vai enxergar a migração como troca de senha root e descartar o MFA
-   (seção 4.1). Nesse caso, o root **DEVERIA** estar pronto para configurar o MFA de novo
-   logo após o deploy.
 
 ## 4. Estado do setup
 
